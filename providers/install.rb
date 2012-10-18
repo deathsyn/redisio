@@ -56,6 +56,9 @@ def install
 end
 
 def configure
+  base_piddir = new_resource.base_piddir
+  version_hash = RedisioHelper.version_to_hash(new_resource.version)
+
   #Setup a configuration file and init script for each configuration provided
   new_resource.servers.each do |current_instance|
 
@@ -66,42 +69,85 @@ def configure
     #Merge the configuration defaults with the provided array of configurations provided
     current = current_defaults_hash.merge(current_instance_hash)
 
-    #Setup a sub-run-context
-    sub_run_context = @run_context.dup
-    sub_run_context.resource_collection = Chef::ResourceCollection.new
-
-    begin
-      #Set the run_context equal to the sub_run_context that has had its resource collection emptied.
-      original_run_context, @run_context = @run_context, sub_run_context
+    recipe_eval do
+      piddir = "#{base_piddir}/#{current['port']}"
+      aof_file = "#{current['datadir']}/appendonly-#{current['port']}.aof"
+      rdb_file = "#{current['datadir']}/dump-#{current['port']}.rdb"  
 
       #Create the owner of the redis data directory
       user current['user'] do
-        comment "Redis service account"
+        comment 'Redis service account'
         supports :manage_home => true
         home current['homedir']
         shell current['shell']
       end
-
       #Create the redis configuration directory
       directory current['configdir'] do
         owner 'root'
         group 'root'
-        mode "0755"
+        mode '0755'
+        recursive true
         action :create
       end
       #Create the instance data directory
       directory current['datadir'] do
         owner current['user']
         group current['group']
-        mode "0755"
+        mode '0775'
+        recursive true
         action :create
       end
+      #Create the pid file directory
+      directory piddir do
+        owner current['user']
+        group current['group']
+        mode '0755'
+        recursive true
+        action :create
+      end
+      #Create the log directory if syslog is not being used
+      directory ::File.dirname("#{current['logfile']}") do
+        owner current['user']
+        group current['group']
+        mode '0755'
+        recursive true
+        action :create
+        only_if { current['syslogenabled'] != 'yes' && current['logfile'] && current['logfile'] != 'stdout' }
+      end
+      #Create the log file is syslog is not being used
+      file current['logfile'] do 
+        owner current['user']
+        group current['group']
+        mode '0644'
+        backup false
+        action :touch
+        only_if { current['logfile'] && current['logfile'] != 'stdout' }
+      end
+      #Set proper permissions on the AOF or RDB files
+      file aof_file do 
+        owner current['user']
+        group current['group']
+        mode '0644'
+        only_if { current['backuptype'] == 'aof' || current['backuptype'] == 'both' }
+        only_if { ::File.exists?(aof_file) }
+      end
+      file rdb_file  do
+        owner current['user']
+        group current['group']
+        mode '0644'
+        only_if { current['backuptype'] == 'rdb' || current['backuptype'] == 'both' }
+        only_if { ::File.exists?(rdb_file) }
+      end
+      #Lay down the configuration files for the current instance
       template "#{current['configdir']}/#{current['port']}.conf" do
         source 'redis.conf.erb'
+        cookbook 'redisio'
         owner current['user']
         group current['group']
         mode '0644'
         variables({
+          :version                => version_hash,
+          :piddir                 => piddir,
           :port                   => current['port'],
           :address                => current['address'],
           :databases              => current['databases'],
@@ -109,6 +155,9 @@ def configure
           :datadir                => current['datadir'],
           :timeout                => current['timeout'],
           :loglevel               => current['loglevel'],
+          :logfile                => current['logfile'],
+          :syslogenabled          => current['syslogenabled'],
+          :syslogfacility         => current['syslogfacility'],
           :save                   => current['save'],
           :slaveof                => current['slaveof'],
           :masterauth             => current['masterauth'],
@@ -130,28 +179,20 @@ def configure
       #Setup init.d file
       template "/etc/init.d/redis#{current['port']}" do
         source 'redis.init.erb'
+        cookbook 'redisio'
         owner 'root'
         group 'root'
         mode '0755'
         variables({
-          :port => current['port']
-        })
-      end
-    ensure      
-      #now that we are done with the sub run, set the run context back to the original
-      @run_context = original_run_context
-    end # sub-run-context block end
-
-    # Here we check the resource collection of the sub run to see if anything was updated.  If they were, we called updated by last action on our resource
-    begin
-      # Converge the sub run, since it is nested it will be converged when the regular run_context is being converged.
-      Chef::Runner.new(sub_run_context).converge
-    ensure
-      if sub_run_context.resource_collection.any?(&:updated?)
-        new_resource.updated_by_last_action(true)
+          :port => current['port'],
+          :user => current['user'],
+          :configdir => current['configdir'],
+          :piddir => piddir,
+          :requirepass => current['requirepass'],
+          :platform => node['platform']
+          })
       end
     end
-
   end # servers each loop
 end
 

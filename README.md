@@ -107,7 +107,7 @@ default_attributes({
 })
 ```
 
-Install redis 2.4.11 (higher than the default version of 2.4.10) and turn safe install off, for the event where redis is already installed.  This will use the default settings.  Keep in mind the redis version will
+Install redis 2.4.11 (lower than the default version of 2.4.16) and turn safe install off, for the event where redis is already installed.  This will use the default settings.  Keep in mind the redis version will
 not actually be updated until you restart the service (either through the LWRP or manually).
 
 ```ruby
@@ -158,6 +158,7 @@ redisio_install "redis-servers" do
   default_settings node['redisio']['default_settings']
   servers node['redisio']['servers']
   safe_install false
+  base_piddir node['redisio']['base_piddir']
 end
 ```
 
@@ -223,15 +224,17 @@ Configuration options, each option corresponds to the same-named configuration o
 * `redisio['artifact_type']` - the file extension of the package.  currently only .tar.gz and .tgz are supported, default is 'tar.gz'
 * `redisio['version']` - the version number of redis to install (also appended to the `base_name` for downloading), default is '2.4.10'
 * `redisio['safe_install'] - prevents redis from installing itself if another version of redis is installed, default is true
+* `redisio['base_piddir'] - This is the directory that redis pidfile directories and pidfiles will be placed in.  Since redis can run as non root, it needs to have proper
+                           permissions to the directory to create its pid.  Since each instance can run as a different user, these directories will all be nested inside this base one.
 
-Default settings is a hash of default settings to be applied to to ALL instances.  These can be overridden for each individual server in the servers attribute.
+Default settings is a hash of default settings to be applied to to ALL instances.  These can be overridden for each individual server in the servers attribute.  If you are going to set logfile to a specific file, make sure to set syslog-enabled to no.
 
 * `redisio['default_settings']` - { 'redis-option' => 'option setting' }
 
 Available options and their defaults
 
 ```
-'user'                   => 'redis' - the user to own the redis datadir
+'user'                   => 'redis' - the user to own the redis datadir, redis will also run under this user
 'group'                  => 'redis' - the group to own the redis datadir
 'homedir'                => Home directory of the user. Varies on distribution, check attributes file 
 'shell'                  => Users shell. Varies on distribution, check attributes file
@@ -242,6 +245,9 @@ Available options and their defaults
 'datadir'                => '/var/lib/redis',
 'timeout'                => '0',
 'loglevel'               => 'verbose',
+'logfile'                => nil,
+'syslogenabled'         => 'yes',,
+'syslogfacility         => 'local0',
 'save'                   => ['900 1','300 10','60 10000'],
 'slaveof'                => nil,
 'masterauth'             => nil,
@@ -249,7 +255,7 @@ Available options and their defaults
 'replpingslaveperiod'    => '10',
 'repltimeout'            => '60',
 'requirepass'            => nil,
-'maxclients'             => '0',
+'maxclients'             => '10000',
 'maxmemory'              => nil,
 'maxmemorypolicy'        => 'volatile-lru',
 'maxmemorysamples'       => '3',
@@ -348,6 +354,7 @@ License and Author
 
 Author:: [Brian Bianco] (<brian.bianco@gmail.com>)
 Author\_Website:: http://www.brianbianco.com
+Twitter:: @brianwbianco
 IRC:: geekbri
 
 Copyright 2012, Brian Bianco

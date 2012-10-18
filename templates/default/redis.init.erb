@@ -13,11 +13,15 @@
 ### END INIT INFO
 
 REDISPORT=<%= @port %>
-EXEC=/usr/local/bin/redis-server
+<% case @platform %>
+<% when 'ubuntu','debian','fedora' %>
+EXEC="sudo -u <%= @user %> /usr/local/bin/redis-server <%= @configdir %>/${REDISPORT}.conf"
+<% else %> 
+EXEC="runuser <%= @user %> -c \"/usr/local/bin/redis-server <%= @configdir %>/${REDISPORT}.conf\""
+<% end %>
 CLIEXEC=/usr/local/bin/redis-cli
 
-PIDFILE=/var/run/redis_${REDISPORT}.pid
-CONF="/etc/redis/${REDISPORT}.conf"
+PIDFILE=<%= @piddir %>/redis_${REDISPORT}.pid
 
 case "$1" in
     start)
@@ -26,7 +30,7 @@ case "$1" in
                 echo "$PIDFILE exists, process is already running or crashed"
         else
                 echo "Starting Redis server..."
-                $EXEC $CONF
+                eval $EXEC
         fi
         ;;
     stop)
@@ -36,7 +40,7 @@ case "$1" in
         else
                 PID=$(cat $PIDFILE)
                 echo "Stopping ..."
-                $CLIEXEC -p $REDISPORT shutdown
+                $CLIEXEC -p $REDISPORT<%= @requirepass ? " -a '#{@requirepass}'" : "" %> shutdown
                 while [ -x /proc/${PID} ]
                 do
                     echo "Waiting for Redis to shutdown ..."
